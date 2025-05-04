@@ -33,4 +33,4 @@ Run the Grafana Agent Alloy with the updated configuration.
 This configuration demonstrates how to leverage the capabilities of Grafana Agent Alloy to collect, process, and analyze metrics and logs from an Apache instance.
 
 ## License
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the Creative Commons Zero v1.0 Universal
