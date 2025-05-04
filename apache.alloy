@@ -1,0 +1,90 @@
+// Exporter server status
+prometheus.exporter.apache "apache_status" {
+  scrape_uri = "http://user:psw@instance.server.com/Advisors/server-status?auto"
+  //insecure = true }
+ 
+// -----------------------------------------------------------------------------
+// LOKI COMPONENTS (for Apache Log Processing)
+// -----------------------------------------------------------------------------
+ 
+// Loki Source - Read Apache Access Logs
+loki.source.file "apache_logs" {
+  targets = [
+    {__path__ = "/logs/apps/apache/instance1/access.log"},
+  ]
+  forward_to = [loki.process.apache_logs_process.receiver]
+}
+ 
+// Loki Process - Parse Apache Logs and Create Metrics
+loki.process "apache_logs_process" {
+  stage.regex {
+    expression = `(?P<ip>\S+) \S+ (?P<user>\S+|\-) \[(?P<timestamp>.*?)\] \"(?P<method>\S+) (?P<path>\S+) \S+\" (?P<status_code>\d+) (?P<response_size>\d+) \".*?\" \".*?\" (?P<response_time>\d+)$`
+  }
+  stage.timestamp {
+    source = "timestamp"
+    format = "02/Jan/2006:15:04:05 -0700"
+  }
+  stage.labels {
+    values = {
+      method      = "method",
+      status_code = "status_code",
+      path        = "path",
+      response_time = "response_time",
+    }
+  }
+  stage.metrics {
+    metric.counter {
+      name = "apache_http_requests_total"
+      description = "Total number of HTTP requests to Apache"
+      source = "status_code"
+      action = "add"
+    }
+    metric.histogram {
+      name = "apache_http_request_duration_seconds"
+      description = "Histogram of Apache HTTP request durations in seconds"
+      source = "response_time"
+      buckets = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10]
+    }
+  }
+  forward_to = [otelcol.receiver.loki.apache_logs.receiver]
+}
+ 
+//----------------------
+// OTEL Transform metrics from logs to Prom format
+//----------------------
+ 
+otelcol.receiver.loki "apache_logs" {
+  output {
+    metrics = [otelcol.exporter.prometheus.apache_logs.input]
+  }
+}
+ 
+otelcol.exporter.prometheus "apache_logs" {
+  forward_to = [prometheus.remote_write.apache_metrics.receiver]
+}
+ 
+// -----------------------------------------------------------------------------
+// PROMETHEUS SCRAPE JOBS
+// -----------------------------------------------------------------------------
+ 
+// Scrape Apache server-status metrics
+prometheus.scrape "apache_status_metrics" {
+  targets    = prometheus.exporter.apache.apache_status.targets
+  forward_to = [prometheus.remote_write.apache_metrics.receiver]
+}
+ 
+ 
+// -----------------------------------------------------------------------------
+// PROMETHEUS REMOTE WRITE
+// -----------------------------------------------------------------------------
+ 
+prometheus.remote_write "apache_metrics" {
+  endpoint {
+    url = "https://destination-receive-platform.wow.es/api/v1/receive"
+    proxy_from_environment = true
+    tls_config {
+      cert_file = "/etc/alloy/remotewrite-destination.cer"
+      key_file = "/etc/alloy/remotewrite-destination.key"
+    }
+  }
+}
